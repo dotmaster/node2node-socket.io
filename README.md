@@ -74,7 +74,7 @@ Logging can be turned on/off in nodeClient by passing an option to the nodeClien
 
 (The MIT License)
 
-Copyright (c) 2010 LearnBoost &lt;dev@learnboost.com&gt;
+Copyright (c) 2011 Gregor Schwab &lt;dev@synaptic-labs.net&gt;
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
