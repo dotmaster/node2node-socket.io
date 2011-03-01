@@ -51,11 +51,11 @@ On the client:
 
 ## Features
 
-NodeClient features a client side heartbeat function, which means that if the server was to hang up the client would get a timeout too and will try to reconnect in an exponantially augmenting time interval until a maximum of retries is reached. Socket.io normally features this only on the server side.
+NodeClient features a client side heartbeat function, which means that if the server was to hang up, the client would get a timeout too and will try to reconnect in an exponentially augmenting time interval until a maximum of retries is reached. Socket.io normally features this only on the server side.
 
 Some more 'error' events are added to the Client Object, so you can subscribe to them. The error Object always has a type and a message field.
 
-Logging can be turned on/off in nodeClient by passing an option to function nodeClient lieke io.nodeClient('0.0.0.0', 1234, {logging: true})
+Logging can be turned on/off in nodeClient by passing an option to the nodeClient like new io.nodeClient('0.0.0.0', 1234, {logging: true})
 
 ## Modifications to Socket.io
 
