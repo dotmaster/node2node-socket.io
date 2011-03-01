@@ -41,13 +41,13 @@ On the server:
 	
 On the client:
 
-  io = require('node2node-socket.io')
+    io = require('node2node-socket.io')
   
-  var Client = new io.nodeClient('0.0.0.0', 1234);
-  Client.connect(); //is async!! but send requests will buffers up if no connection there yet
-  Client.on('connect', function(){...})
-  Client.on('message', function(client){...})
-  Client.on('disconnect', function(){...})  
+    var Client = new io.nodeClient('0.0.0.0', 1234);
+    Client.connect(); //is async!! but send requests will buffers up if no connection there yet
+    Client.on('connect', function(){...})
+    Client.on('message', function(client){...})
+    Client.on('disconnect', function(){...})  
 
 ## Features
 
