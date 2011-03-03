@@ -1,0 +1,27 @@
+{
+   "name": "node2node",
+   "description": "A Node Client and Transport for Socket.IO using XHR and Multipart/Mime transfer. Make node 2 node socket.io connections easy.",
+   "tags": [
+       "socket.io",
+       "node",
+       "client",
+       "transport",
+       "multipart",
+       "mime",
+       "xhr"
+   ],
+   "version": "0.1.0",
+   "author": "dotmaster <greg@synaptic-labs.net>",
+   "repository": {
+       "type": "git",
+       "url": "https://github.com/dotmaster/node2node-socket.io"
+   },
+   "bugs": "https://github.com/dotmaster/node2node-socket.io/issues",
+   "engines": [
+       "node >= 0.4.0"
+   ],
+   "main": "index.js",
+   "dependencies": {
+       //"socket.io": ">="       
+    }
+}
