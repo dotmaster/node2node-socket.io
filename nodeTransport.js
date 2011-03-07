@@ -1,5 +1,5 @@
 //var Client = require('../client')
-var Client = require('./node_modules/socket.io/').Client
+var filteredClient = require('filteredClient-socket.io')
   , util = require(process.binding('natives').util ? 'util' : 'sys')
   , qs = require('querystring');
 
@@ -7,7 +7,7 @@ var NodeClient = module.exports = function(){
   Client.apply(this, arguments);
 };
 
-util.inherits(NodeClient, Client);
+util.inherits(NodeClient, filteredClient);
 
 NodeClient.prototype._onConnect = function(req, res){
   var self = this, body = '', headers = {};
