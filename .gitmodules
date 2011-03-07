@@ -1,6 +1,3 @@
 [submodule "node_modules/socket.io"]
 	path = node_modules/socket.io
 	url = git@github.com:dotmaster/Socket.IO-node.git
-[submodule "node_modules/filteredClient-socket.io"]
-	path = node_modules/filteredClient-socket.io
-	url = git@github.com:dotmaster/filteredClient-socket.io.git
