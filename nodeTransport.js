@@ -1,7 +1,8 @@
-//var Client = require('../client')
 var io = require('socket.io')
   , util = require(process.binding('natives').util ? 'util' : 'sys')
   , qs = require('querystring');
+  
+var Client =io.Client
 
 var NodeClient = module.exports = function(){
   Client.apply(this, arguments);

@@ -48,7 +48,7 @@ function Socket(ip, port, opts){
 	  logging: false,
 		timeout: 8000,
 		resource:self.requestUriBase,
-		heartbeatInterval: 16000, //be a bit generous, cause this must be larger than the serverside heartbeat interval (which now is 10 seconds)
+		heartbeatInterval: 50000, //be a bit generous, cause this must be larger than the serverside heartbeat interval (which now is 10 seconds)
 		closeTimeout: 0,
 		maxRetries: 20,
 		initialTimeBetweenTries: 1000
@@ -111,7 +111,9 @@ Socket.prototype._request = function(url, method, multipart){
   };
   var req = http.request(options);
   var self=this;
-  req.connection.addListener('end', function(){ self.warn('req.connection.addListener end called'); self._onDisconnect('connection end'); });  
+  //avoid leaks of event listeners on connection object during posts
+  var cb = function(){ self.warn('req.connection.addListener end called'); self._onDisconnect('connection end'); }
+  if (req.connection.listeners('end').indexOf(cb) !== -1) req.connection.on('end', cb);  
 	req.on('error', function(e){
 	  self.log("Got Request error: " + e.message);
 	  self.emit('error', {type: (req.method=='GET'?'connect':'send'), 'error':e, 'message': e.message})
