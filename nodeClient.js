@@ -124,6 +124,7 @@ Socket.prototype._request = function(url, method, multipart){
 	return req;
 };
 
+//SERVER->CLIENT (GET CHANNEL)
 Socket.prototype.connect = function(){
   if (!this.shouldConnect)  return;
   this.log('connecting...')
@@ -145,6 +146,7 @@ Socket.prototype.connect = function(){
   
   this.parser.onpartbegin = function (part) { 
     //self.log('content type '+(part.headers['content-type'])); 
+    if (part.headers['filename']) self.emit('onpartbegin', part)
   };
   this.parser.ondata = function (chunk) { 
     //self.log('chunk '+ chunk); 
@@ -257,6 +259,7 @@ Socket.prototype._checkSend = function(){
 	}
 };
 
+//CLIENT->SERVER (POST CHANNEL)
 Socket.prototype._send = function(data){
 	var self = this;
 	this._posting = true;
