@@ -4,7 +4,6 @@
 //require('./reporter') // reporter must be running
 //require(__dirname + "/lib/setup").ext('support');
 //require('log4js') // logging doesnt depend on log4js
-require('coffee-script'); 
 var urlparse = require('url').parse,
 		frame = '~m~',
 		qs = require('querystring');
@@ -13,7 +12,6 @@ var events = require('events');
 var StringDecoder = require('string_decoder').StringDecoder
 var util=require('util');
 var path = require('path');
-var FileHandler = require('./fileHandler');
 
 util.inherits(Socket, events.EventEmitter);
 /**
