@@ -4,3 +4,6 @@
 [submodule "node_modules/multipart"]
 	path = node_modules/multipart
 	url = https://github.com/isaacs/multipart-js.git
+[submodule "node_modules/nodeBase"]
+	path = node_modules/nodeBase
+	url = git@github.com:dotmaster/NodeBase.git

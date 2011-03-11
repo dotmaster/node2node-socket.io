@@ -4,12 +4,17 @@
 //require('./reporter') // reporter must be running
 //require(__dirname + "/lib/setup").ext('support');
 //require('log4js') // logging doesnt depend on log4js
+require('coffee-script'); 
 var urlparse = require('url').parse,
 		frame = '~m~',
 		qs = require('querystring');
 		var multipart = require("multipart");
 var events = require('events');
+var StringDecoder = require('string_decoder').StringDecoder
 var util=require('util');
+var path = require('path');
+var FileHandler = require('./fileHandler');
+
 util.inherits(Socket, events.EventEmitter);
 /**
  * @desc simulates a socket.io client with HTTP client
@@ -63,6 +68,9 @@ function Socket(ip, port, opts){
   this.initial = true;
   this.maxRetries = this.options.maxRetries;
   this.retries = 0;
+  //file handling
+  this.isPartFile=false;
+  this.currentPart;
 
   //LOG4JS LOGGING
   this._addContext = function(a){
@@ -124,7 +132,11 @@ Socket.prototype._request = function(url, method, multipart){
 	return req;
 };
 
-//SERVER->CLIENT (GET CHANNEL)
+/*
+*
+* SERVER->CLIENT (GET CHANNEL)
+* 
+*/
 Socket.prototype.connect = function(){
   if (!this.shouldConnect)  return;
   this.log('connecting...')
@@ -143,18 +155,36 @@ Socket.prototype.connect = function(){
    this.on('error', function(e){
      this.send({status:'error', 'message':e.message, 'data':e})//will queue in sendbuffer if no connection available yet, be JSend compliant
    }); 
-  
+
+  /*
+  *
+  * MULTIPART PARSING (using isaacs multipart parser)
+  * 
+  */ 
+  //fileHandler = new FileHandler(this)
+  //keep track of part status file specific hanlding of parts 
+  this.on('OnFileBegin', function(part){this.isPartFile=true;})
+  this.on('OnFileEnd', function(){this.isPartFile=false;})
   this.parser.onpartbegin = function (part) { 
     //self.log('content type '+(part.headers['content-type'])); 
-    if (part.headers['filename']) self.emit('onpartbegin', part)
+    if (part.headers['filename']) self.emit('OnFileBegin', part)
+    else self.emit('OnPartBegin', part)
+    
   };
   this.parser.ondata = function (chunk) { 
     //self.log('chunk '+ chunk); 
-    buffer+=chunk.toString(); 
+    if(this.isPartFile)
+          self.emit('data', chunk)
+    else//its a normal text message
+      buffer+=chunk.toString();    
+
+
   };
-  this.parser.onpartend = function (part) { 
-    //self.log('parser boundary end '); 
-    self._onData(buffer); buffer=""; 
+  this.parser.onpartend = function (part) {    
+    if (part.headers['filename']) self.emit('OnFileEnd', part)
+    else    
+      self.emit('OnPartEnd')
+      self._onData(buffer); buffer="";
   };  
 
   if (!('_sendBuffer' in this)) this._sendBuffer = [];
@@ -175,8 +205,11 @@ Socket.prototype.connect = function(){
           return;
       }
 
-      //var json;
-      
+      /*
+      *
+      * INCOMING SERVER DATA AND MESSAGES
+      * 
+      */      
       response.setEncoding('utf8');
       response.on('error', function (e) {
         self.emit('error', {'type':'connect', 'message': 'Multipart GET request response error ' + e.message})    
@@ -259,7 +292,12 @@ Socket.prototype._checkSend = function(){
 	}
 };
 
-//CLIENT->SERVER (POST CHANNEL)
+/*
+*
+* CLIENT->SERVER (POST CHANNEL)
+* 
+*/
+
 Socket.prototype._send = function(data){
 	var self = this;
 	this._posting = true;

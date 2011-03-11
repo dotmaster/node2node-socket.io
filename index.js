@@ -8,3 +8,5 @@ Listener.addTransport('nodeTransport', nodeTransport)
 //add nodeClient to the list of exports
 module.exports.nodeClient = require ('./nodeClient').nodeClient;
 
+require('coffee-script')
+
