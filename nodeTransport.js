@@ -1,4 +1,4 @@
-var io = require('socket.io')
+var io = require('./node_modules/socket.io')
   , util = require(process.binding('natives').util ? 'util' : 'sys')
   , qs = require('querystring');
   

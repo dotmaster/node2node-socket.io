@@ -119,7 +119,7 @@ Socket.prototype._request = function(url, method, multipart){
   var self=this;
   //avoid leaks of event listeners on connection object during posts
   var cb = function(){ self.warn('req.connection.addListener end called'); self._onDisconnect('connection end'); }
-  if (req.connection.listeners('end').indexOf(cb) !== -1) req.connection.on('end', cb);  
+  if (req.connection && req.connection.listeners('end').indexOf(cb) !== -1) req.connection.on('end', cb);  
 	req.on('error', function(e){
 	  self.log("Got Request error: " + e.message);
 	  self.emit('error', {type: (req.method=='GET'?'connect':'send'), 'error':e, 'message': e.message})
@@ -362,13 +362,20 @@ Socket.prototype._handleConnectError = function(){
     } catch(e) {
       this.warn("[Response] Error ending connection "+e)
     }
-    this.request.destroy && this.request.destroy();
-    this.response.destroy && this.response.destroy();    
+    try{
+      this.request.destroy && this.request.destroy();
+      this.response.destroy && this.response.destroy();    
+    }catch(e){
+      this.warn("[Response] Error destroying connection "+e)
+    }
 
     //  now lets reconnect
     if (this._checkMaxTimesConnectionError('connect')) return;
-    this.timeBetweenTries *= 2;        
-    this.emit('error', {type: 'connect', message: 'handleConnectionError ' + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})  
+    this.timeBetweenTries *= 2;     
+    //dont emit error message cause we handle it   
+    //this.emit('error', {type: 'connect', message: 'handleConnectionError ' + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})  
+    //reconnecting(reconnectionDelay,reconnectionAttempts)
+    this.emit ('reconnecting', this.timeBetweenTries, this.retries)
     //we are not yet connected so no heartbeat interval is set, lets just try again
     this.connecting=false;
     this._connect(); //starts a timer before effectively connecting
@@ -446,7 +453,9 @@ Socket.prototype._checkMaxTimesConnectionError = function(type){
   //this._checkStartInterval();
   //reopen connection
   if (this.retries++ >= this.maxRetries){
-    this.emit('error', {type: type, message: 'max retry times reached, retried ' + this.maxRetries + ' times. bailing out'})
+    //this.emit('error', {type: type, message: 'max retry times reached, retried ' + this.maxRetries + ' times. bailing out'})
+    this.error('max retry times reached, retried ' + this.maxRetries + ' times. bailing out')
+    this.emit('reconnect_failed')//be coherent with cocket.io
     //we shouldnt be in a timer, when we come here, cause the timer gets rearmed only after a disconnect took place and a _connect is called 
     if (this.connectWaitTimer._onTimeout !== null ) clearTimeout(this._connectWaitTimer);  //that's it, definitely clear the reconnect timeout
     return true;   
@@ -459,7 +468,10 @@ Socket.prototype._onDisconnect = function(spec){
   if (this._checkMaxTimesConnectionError('disconnect')) return;
   //reopen connection
   //if (spec == 'heartbeat timeout'){
-    this.emit('error', {type: 'disconnect', message: spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})   
+    //this.emit('error', {type: 'disconnect', message: spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})   
+    this.log(spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds')   
+    //reconnect(transport_type,reconnectionAttempts), timeBetweenretries
+    this.emit('disconnect', 'nodeTransport', this.retries, this.timeBetweenTries)
     this.disconnect();     
     this._connect();
     this.timeBetweenTries *= 2;  
