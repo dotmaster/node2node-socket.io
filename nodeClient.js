@@ -7,13 +7,16 @@
 var urlparse = require('url').parse,
 		frame = '~m~',
 		qs = require('querystring');
-		var multipart = require("multipart");
+		var multipart = require("./node_modules/multipart/lib/multipart");
 var events = require('events');
 var StringDecoder = require('string_decoder').StringDecoder
 var util=require('util');
 var path = require('path');
 
-util.inherits(Socket, events.EventEmitter);
+var nodeBase = require('./node_modules/nodeBase');
+util.inherits(Socket, nodeBase);
+
+//util.inherits(Socket, events.EventEmitter);
 /**
  * @desc simulates a socket.io client with HTTP client
  */
@@ -46,7 +49,7 @@ function Socket(ip, port, opts){
   events.EventEmitter.call(this);
 	//process.EventEmitter.call(this);
 	var self=this;
-	options({
+	/*options({
 	  secure: false,
 	  logging: false,
 		timeout: 8000,
@@ -55,7 +58,19 @@ function Socket(ip, port, opts){
 		closeTimeout: 0,
 		maxRetries: 20,
 		initialTimeBetweenTries: 1000
-	}, opts, self);
+	}, opts, self);*/
+  this.defaults = {
+	  secure: false,
+	  logging: true,
+	  logLevel: 'ALL',
+		timeout: 8000,
+		resource:self.requestUriBase,
+		heartbeatInterval: 50000, //be a bit generous, cause this must be larger than the serverside heartbeat interval (which now is 10 seconds)
+		closeTimeout: 0,
+		maxRetries: 20,
+		initialTimeBetweenTries: 1000
+	}	
+	nodeBase.apply(this, [opts]); 
 	this.connected = false;
 	this.connecting = false;
 	this._heartbeats = 0;
@@ -71,15 +86,15 @@ function Socket(ip, port, opts){
   this.currentPart;
 
   //LOG4JS LOGGING
-  this._addContext = function(a){
+  /*this._addContext = function(a){
     var args = Array.prototype.slice.call(a);
-    args.unshift('[NODE CLIENT] ' + '--' + now()+ ' '); 
+    args.unshift(colorize('[NODE CLIENT] ', 'green') + '--' + now()+ ' '); 
     return args;   
   }
   this.log = function(a){ if (this.options.logging) console.log.apply(this, this._addContext(arguments));}
   this.warn = function(a){ if (this.options.logging) console.warn.apply(this, this._addContext(arguments));}
   this.info = function(a){ if (this.options.logging) console.info.apply(this, this._addContext(arguments));}  
-  this.error = function(a){ if (this.options.logging) console.error.apply(this, this._addContext(arguments));}
+  this.error = function(a){ /* always log errors if (this.options.logging)*/ //console.error.apply(this, this._addContext(arguments));}
   // we try connecting every n milli seconds. On errors n is always doubled.
   this.connectWaitTimer = function interval() {
    setTimeout(function () {
@@ -87,7 +102,8 @@ function Socket(ip, port, opts){
      //self.startInterval();
    }, self.timeBetweenTries); // we cannot use setInterval because we need to change the time all the time.
   }
-
+  
+  //this function enables entrance to the connect function after a timeout
   this._connect= function(){
     self.shouldConnect=true;
     self.connectWaitTimer();    
@@ -100,9 +116,10 @@ Socket.prototype._prepareUrl = function(){
 		+ ':' + this.port
 		+ '/' + this.options.resource
 		+ '/' + this.type
-		+ (this.sessionid ? ('/' + this.sessionid) : '/');
+		+ (this.sessionId ? ('/' + this.sessionId) : '/');
 };
 
+//here we setup GET and POST requests and do some error handling
 Socket.prototype._request = function(url, method, multipart){
   if (method == 'POST'){
 		this.headers['Content-type']= 'application/x-www-form-urlencoded; charset=utf-8';
@@ -117,12 +134,18 @@ Socket.prototype._request = function(url, method, multipart){
   };
   var req = http.request(options);
   var self=this;
-  //avoid leaks of event listeners on connection object during posts
-  var cb = function(){ self.warn('req.connection.addListener end called'); self._onDisconnect('connection end'); }
-  if (req.connection && req.connection.listeners('end').indexOf(cb) !== -1) req.connection.on('end', cb);  
+  //INSTALL ERROR AND AVENT HANDLESRS ON SHARED SOCKET AND CONNECTION
+  //avoid leaks of event listeners on connection object during POST (cause this gets called every time we send a message)
+  var connectionCb = function(e){ self.warn('req.connection.addListener end called'); if (this.connected) self._onDisconnect('connection end'); }
+  var socketErrCb = function(e){ self.error('req.socket.error', e); if (this.connected) self._onDisconnect('connection end')}; 
+  if (req.socket && req.socket.listeners('error').indexOf(socketErrCb) !== -1) req.socket.on('error', socketErrCb);
+  if (req.connection && req.connection.listeners('error').indexOf(socketErrCb) !== -1) req.connection.on('error', socketErrCb);     
+  if (req.connection && req.connection.listeners('end').indexOf(connectionCb) !== -1) req.connection.on('end', connectionCb);  
+  
+  //the request ERROR handler is not shared
 	req.on('error', function(e){
-	  self.log("Got Request error: " + e.message);
-	  self.emit('error', {type: (req.method=='GET'?'connect':'send'), 'error':e, 'message': e.message})
+	  self.log("Got " +  method + " Request error: " + e.message + ' url: ' + req.path);
+	  //self.emit('error', {type: (req.method=='GET'?'connect':'send'), 'error':e, 'message': e.message})
 	})
 	//if (multipart) req.multipart = true;
 	//req.open(method || 'GET', this._prepareUrl() + (url ? '/' + url : ''));
@@ -149,9 +172,9 @@ Socket.prototype.connect = function(){
   // part that's currently being dealt with.
   var buffer="";sendBuffer="";
   
-  //subscribe to own error events
+  //subscribe to own error events to send them to server
    this.on('error', function(e){
-     this.send({status:'error', 'message':e.message, 'data':e})//will queue in sendbuffer if no connection available yet, be JSend compliant
+     //this.send({status:'error', 'message':e.message, 'data':e})//will queue in sendbuffer if no connection available yet, be JSend compliant
    }); 
 
   /*
@@ -161,8 +184,6 @@ Socket.prototype.connect = function(){
   */ 
   //fileHandler = new FileHandler(this)
   //keep track of part status file specific hanlding of parts 
-  this.on('OnFileBegin', function(part){this.isPartFile=true;})
-  this.on('OnFileEnd', function(){this.isPartFile=false;})
   this.parser.onpartbegin = function (part) { 
     //self.log('content type '+(part.headers['content-type'])); 
     if (part.headers['filename']) self.emit('OnFileBegin', part)
@@ -190,8 +211,11 @@ Socket.prototype.connect = function(){
   //this.request = client.request('GET', this._prepareUrl, this.headers);
   this.request = this._request('', 'GET', true);
   var buffer;
+  this.request.socket.on('error', function (e){self.error(e)})
   this.request.on('error', function (e){
-    self.emit('error', {'type':'connect', 'message': 'Multipart GET request error ' + e.message})  
+    //self.emit('error', {'type':'connect', 'message': 'Multipart GET request error: ' + e.message})  
+    //self.error('Multipart GET request = Message Server->Client error: ' + e.message)  
+    self.ermit(e)
     self._handleConnectError();                  
   });
   this.request.on('response', function (response){
@@ -234,8 +258,11 @@ Socket.prototype.connect = function(){
 }
 
 Socket.prototype.disconnect = function(){
-  // clode the parser
-  this.parser.close();
+  // close the parser
+  if (this.parser) {
+    this.parser.close();
+    this.parser = null
+  }
   try {
     //the GET request
     if('response' in this) this.response.connection.destroy();
@@ -244,9 +271,9 @@ Socket.prototype.disconnect = function(){
         if (typeof this.request.abort == 'function') 
           this.request.abort();//new since node v3.8
     }
-    this.log("[Response] Closing connection ");
+    this.log("[GET channel] Closing connection ");
   } catch(e) {
-    this.warn("[Response] Error ending connection "+e)
+    this.warn("[GET channel] Error ending connection "+e)
   }
   try {
     //the post request
@@ -256,13 +283,13 @@ Socket.prototype.disconnect = function(){
         if (typeof this._sendRequest.abort == 'function') 
           this._sendRequest.abort();//new since node v3.8
     }
-    this._posting = false;
-    this.connecting = false;    
-    this.log("[sendResponse] Closing connection ");
+    this.log("[POST channel] Closing connection ");
   } catch(e) {
-    this.warn("[sendResponse] Error ending connection "+e)
+    this.warn("[POST channel] Error ending connection "+e)
   }  
-  this.sessionid = undefined; 
+  this._posting = false;
+  this.connecting = false;  
+  this.sessionId = undefined; 
   this.connected = false;
   this.emit('disconnect', {message:'disconnect'}); 
 }
@@ -301,8 +328,10 @@ Socket.prototype._send = function(data){
 	this._posting = true;
 	this._sendRequest = this._request('send', 'POST');
 	this._sendRequest.write('data=' + /*encodeURIComponent*/qs.escape(data));
+	this._sendRequest.on('error', function(e){self.ermit(e)})
 	this._sendRequest.on('response', function(response){
 		self._sendResponse=response;
+		response.on('error', function(e){self.ermit(e)})
 		if (response.statusCode != 200){
 		    self.emit('error', {'type': 'send', 'message':'error sending message, got statuscode ' + http.STATUS_CODES[response.statusCode]})
 		}
@@ -348,37 +377,42 @@ Socket.prototype._heartbeat = function(h){
 
 //HANDLING CONNECTION ERRORS
 Socket.prototype._handleConnectError = function(){
-  //destroy everything, that has been created until now
+  //destroy resources, that have been created until now
+  // close the parser
+  if (this.parser) {
     this.parser.close();
-    try {
-      //the GET request
-      if('response' in this) this.response.connection.destroy();
-      if ('request' in this) {
-          this.request.end();  this.request.connection.destroy(); 
-          if (typeof this.request.abort == 'function') 
-            this.request.abort();//new since node v3.8
-      }
-      this.log("[Response] Closing connection ");
-    } catch(e) {
-      this.warn("[Response] Error ending connection "+e)
+    this.parser = null
+  }
+  try {
+    //the GET request
+    if('response' in this) this.response.connection.destroy();
+    if ('request' in this) {
+        this.request.end();  
+        this.request.connection.destroy(); 
+        if (typeof this.request.abort == 'function') 
+          this.request.abort();//new since node v3.8
     }
-    try{
-      this.request.destroy && this.request.destroy();
-      this.response.destroy && this.response.destroy();    
-    }catch(e){
-      this.warn("[Response] Error destroying connection "+e)
-    }
+    this.log("[Response] Closing connection ");
+  } catch(e) {
+    this.warn("[Response] Error ending connection "+e)
+  }
+  try{
+    this.request.destroy && this.request.destroy();
+    this.response.destroy && this.response.destroy();    
+  }catch(e){
+    this.warn("[Response] Error destroying connection "+e)
+  }
 
-    //  now lets reconnect
-    if (this._checkMaxTimesConnectionError('connect')) return;
-    this.timeBetweenTries *= 2;     
-    //dont emit error message cause we handle it   
-    //this.emit('error', {type: 'connect', message: 'handleConnectionError ' + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})  
-    //reconnecting(reconnectionDelay,reconnectionAttempts)
-    this.emit ('reconnecting', this.timeBetweenTries, this.retries)
-    //we are not yet connected so no heartbeat interval is set, lets just try again
-    this.connecting=false;
-    this._connect(); //starts a timer before effectively connecting
+  //  now lets reconnect
+  if (this._checkMaxTimesConnectionError('connect')) return;
+  this.timeBetweenTries *= 2;     
+  //dont emit error message cause we handle it   
+  //this.emit('error', {type: 'connect', message: 'handleConnectionError ' + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})  
+  //reconnecting(reconnectionDelay,reconnectionAttempts)
+  this.emit ('reconnecting', this.timeBetweenTries, this.retries)
+  //we are not yet connected so no heartbeat interval is set, lets just try again
+  this.connecting=false;
+  this._connect(); //starts a timer before effectively connecting
 }
 
 Socket.prototype.setupHeartbeatInterval = function(){
@@ -416,9 +450,9 @@ Socket.prototype._onData = function(data){
 
 //response on data
 Socket.prototype._onMessage = function(message){
-  if (!('sessionid' in this)){
-		this.sessionid = message;
-		this.info(' session '+ this.sessionid +  ' established - connected')
+  if (!('sessionId' in this)){
+		this.sessionId = message;
+		this.info(' session '+ this.sessionId +  ' established - connected')
 		this._onConnect();
 	} else if (message.substr(0, 3) == '~h~'){
 		this._onHeartbeat(message.substr(3)); //pong
@@ -465,16 +499,16 @@ Socket.prototype._checkMaxTimesConnectionError = function(type){
 Socket.prototype._onDisconnect = function(spec){
   //called when we lost connection (actually the connection might still be active so disconnect it!)
   //check if limit reached
-  if (this._checkMaxTimesConnectionError('disconnect')) return;
   //reopen connection
   //if (spec == 'heartbeat timeout'){
-    //this.emit('error', {type: 'disconnect', message: spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})   
-    this.log(spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds')   
-    //reconnect(transport_type,reconnectionAttempts), timeBetweenretries
-    this.emit('disconnect', 'nodeTransport', this.retries, this.timeBetweenTries)
-    this.disconnect();     
-    this._connect();
-    this.timeBetweenTries *= 2;  
+  //this.emit('error', {type: 'disconnect', message: spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})    
+  //reconnect(transport_type,reconnectionAttempts), timeBetweenretries
+  //this.emit('disconnect', 'nodeTransport', this.retries, this.timeBetweenTries)
+  this.disconnect();     
+  if (this._checkMaxTimesConnectionError('disconnect')) return;  
+  this.log(spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds')    
+  this._connect();
+  this.timeBetweenTries *= 2;  
 
   //}
   //we will not receive any heartbeat anymore, so clear the heartbeat timeout
@@ -542,6 +576,36 @@ function merge(source, merge){
 	for (var i in merge) source[i] = merge[i];
 	return source;
 };
+
+var colorize, styles;
+styles = {
+  'bold': [1, 22],
+  'italic': [3, 23],
+  'underline': [4, 24],
+  'inverse': [7, 27],
+  'white': [37, 39],
+  'grey': [90, 39],
+  'black': [30, 39],
+  'blue': [34, 39],
+  'cyan': [36, 39],
+  'green': [32, 39],
+  'magenta': [35, 39],
+  'red': [31, 39],
+  'yellow': [33, 39]
+};
+
+colorize = function(string, color) {
+  return '\033[' + styles[color][0] + 'm' + string + '\033[' + styles[color][1] + 'm';
+};
+
+var colors;
+if (typeof global != "undefined" && global !== null) {
+  colors = true;
+} else {
+  colorize = function(string, color) {
+    return string;
+  };
+}
 
 //factory method for closure
 exports.makeSocket=function(ip,port,opts){return new Socket(ip, port, opts);};
