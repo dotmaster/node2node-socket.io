@@ -290,7 +290,9 @@ Socket.prototype.disconnect = function(){
   this._posting = false;
   this.connecting = false;  
   this.sessionId = undefined; 
+  delete this.sessionId
   this.connected = false;
+  this._heartbeats = 0
   this.emit('disconnect', {message:'disconnect'}); 
 }
 
@@ -415,11 +417,12 @@ Socket.prototype._handleConnectError = function(){
   this._connect(); //starts a timer before effectively connecting
 }
 
-Socket.prototype.setupHeartbeatInterval = function(){
+Socket.prototype.setupHeartbeatTimeoutInterval = function(h){
   var self = this;
 	if(this._heartbeatTimeout._onTimeout !== null) clearTimeout(this._heartbeatTimeout);
 	//this.log('heartbeat Timeout cleared ' + 		self._heartbeatTimeout._idleStart   )					 
   self._heartbeatTimeout = setTimeout(function(){
+    self.log('heartBeat Timeout from server, should have received heartbeat '+ ++h + ' by now, time passed: '+ self.options.heartbeatInterval)
   	self._onDisconnect('heartbeat timeout');
   }, self.options.heartbeatInterval);
   //self.log('settup heartbeat Timeout ' + self._heartbeatTimeout._idleStart)			
@@ -428,7 +431,7 @@ Socket.prototype.setupHeartbeatInterval = function(){
 //request on response
 Socket.prototype._onConnect = function(){
   //when we connect the server will send a heartbeat within its interval (on the client we start counting a bit longer so that we take into account the transmission time)
-  this.setupHeartbeatInterval();
+  this.setupHeartbeatTimeoutInterval();
 	this.connected = true;
 	this.connecting = false;
 	//this._doQueue();
@@ -468,7 +471,7 @@ Socket.prototype._onHeartbeat = function(h){
 		//this.log('heartbeat received ' + h)	
 		//this.log('heartbeat Timeout before clear ' + self._heartbeatTimeout._idleStart)
 		//when we receive a heartbeat weclear the timeout and start counting again			
-    this.setupHeartbeatInterval();
+    this.setupHeartbeatTimeoutInterval(h);
 		this._heartbeat(h); // echo
 	//}
 };
