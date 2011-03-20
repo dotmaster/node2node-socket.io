@@ -1,9 +1,4 @@
-//exports.report=report;
-//exports.prof=prof;
 
-//require('./reporter') // reporter must be running
-//require(__dirname + "/lib/setup").ext('support');
-//require('log4js') // logging doesnt depend on log4js
 var urlparse = require('url').parse,
 		frame = '~m~',
 		qs = require('querystring');
@@ -49,52 +44,34 @@ function Socket(ip, port, opts){
   events.EventEmitter.call(this);
 	//process.EventEmitter.call(this);
 	var self=this;
-	/*options({
-	  secure: false,
-	  logging: false,
-		timeout: 8000,
-		resource:self.requestUriBase,
-		heartbeatInterval: 50000, //be a bit generous, cause this must be larger than the serverside heartbeat interval (which now is 10 seconds)
-		closeTimeout: 0,
-		maxRetries: 20,
-		initialTimeBetweenTries: 1000
-	}, opts, self);*/
+
   this.defaults = {
 	  secure: false,
 	  logging: true,
+	  reconnect: true,
 	  logLevel: 'ALL',
-		timeout: 8000,
+		timeout: 25000,// was heartbeatInterval be a bit generous, cause this must be larger than the serverside heartbeat interval (which now is 10 seconds)
 		resource:self.requestUriBase,
-		heartbeatInterval: 50000, //be a bit generous, cause this must be larger than the serverside heartbeat interval (which now is 10 seconds)
 		closeTimeout: 0,
-		maxRetries: 20,
-		initialTimeBetweenTries: 1000
+		maxReconnectionAttempts: 10,
+		reconnectionDelay: 500
 	}	
 	nodeBase.apply(this, [opts]); 
 	this.connected = false;
 	this.connecting = false;
+  this.reconnecting	= false
 	this._heartbeats = 0;
 	this._posting=false;
   this._heartbeatTimeout = {};
-  this.timeBetweenTries = this.options.initialTimeBetweenTries;  
+  this.timeBetweenTries = this.options.reconnectionDelay;  
   this.shouldConnect=true;
   this.initial = true;
-  this.maxRetries = this.options.maxRetries;
+  this.maxReconnectionAttempts = this.options.maxReconnectionAttempts;
   this.retries = 0;
   //file handling
   this.isPartFile=false;
   this.currentPart;
 
-  //LOG4JS LOGGING
-  /*this._addContext = function(a){
-    var args = Array.prototype.slice.call(a);
-    args.unshift(colorize('[NODE CLIENT] ', 'green') + '--' + now()+ ' '); 
-    return args;   
-  }
-  this.log = function(a){ if (this.options.logging) console.log.apply(this, this._addContext(arguments));}
-  this.warn = function(a){ if (this.options.logging) console.warn.apply(this, this._addContext(arguments));}
-  this.info = function(a){ if (this.options.logging) console.info.apply(this, this._addContext(arguments));}  
-  this.error = function(a){ /* always log errors if (this.options.logging)*/ //console.error.apply(this, this._addContext(arguments));}
   // we try connecting every n milli seconds. On errors n is always doubled.
   this.connectWaitTimer = function interval() {
    setTimeout(function () {
@@ -104,10 +81,34 @@ function Socket(ip, port, opts){
   }
   
   //this function enables entrance to the connect function after a timeout
+  this.manualConnect= function(){
+    if (this.connected || this.connecting || this.reconnecting) return;
+    this.shouldConnect=true;
+    this.timeBetweenTries = this.options.maxReconnectionAttempts
+    this.retries = 0;
+    this.heartbeats = 0
+    this.connect() 
+  }
+    
+  //this function enables entrance to the connect function after a timeout
   this._connect= function(){
     self.shouldConnect=true;
     self.connectWaitTimer();    
   }
+  
+  this._onReconnect= function(){
+    if (this._checkMaxTimesConnectionError()) return;       
+    this.timeBetweenTries *= 2;    
+
+    if (this.options.reconnect && !this.reconnecting) {
+		  this.reconnecting = true;         
+      this.log('retrying to connect in ' + this.timeBetweenTries/1000 + ' seconds')  
+      //reconnecting(reconnectionDelay,reconnectionAttempts)
+      this.emit ('reconnecting', this.timeBetweenTries, this.retries)
+      self._connect() //starts a timer before effectively connecting        
+    }
+
+  }  
 }
 
 Socket.prototype._prepareUrl = function(){
@@ -265,8 +266,7 @@ Socket.prototype.disconnect = function(){
   }
   try {
     //the GET request
-    if('response' in this) this.response.connection.destroy();
-    if ('request' in this) {
+    if ('request' in this && this.request) {
         this.request.end();  this.request.connection.destroy(); 
         if (typeof this.request.abort == 'function') 
           this.request.abort();//new since node v3.8
@@ -275,22 +275,26 @@ Socket.prototype.disconnect = function(){
   } catch(e) {
     this.warn("[GET channel] Error ending connection "+e)
   }
-  try {
-    //the post request
-    if('sendResponse' in this) this.response.connection.destroy();
-    if ('_sendRequest' in this) {
-        this._sendRequest.connection.destroy(); 
-        if (typeof this._sendRequest.abort == 'function') 
-          this._sendRequest.abort();//new since node v3.8
-    }
-    this.log("[POST channel] Closing connection ");
-  } catch(e) {
-    this.warn("[POST channel] Error ending connection "+e)
-  }  
-  this._posting = false;
+  if (this.connected){ //POST request and connection tomeout exist if we were connected
+  //the POST request exist only after we connected, cause its onbly then that we start sending heartbeats (after connet)
+    try {
+      //the post request
+      if ('_sendRequest' in this) {
+          this._sendRequest.connection.destroy(); 
+          if (typeof this._sendRequest.abort == 'function') 
+            this._sendRequest.abort();//new since node v3.8
+      }
+      this.log("[POST channel] Closing connection ");
+    } catch(e) {
+      this.warn("[POST channel] Error ending connection "+e)
+    }  
+    this._posting = false;
+    //we will not receive any heartbeat anymore, so clear the heartbeat timeout
+    if (this._heartbeatTimeout._onTimeout !== null) clearTimeout(this._heartbeatTimeout);    
+  }
   this.connecting = false;  
-  this.sessionId = undefined; 
-  delete this.sessionId
+  this.reconnecting  = false;  
+  delete this.sessionId //important
   this.connected = false;
   this._heartbeats = 0
   this.emit('disconnect', {message:'disconnect'}); 
@@ -377,44 +381,13 @@ Socket.prototype._heartbeat = function(h){
 	self.send('~h~' + h); //pong
 };
 
-//HANDLING CONNECTION ERRORS
+//called when we have an error durring connection (No connection yet) 
+// HANDLING CONNECTION ERRORS
 Socket.prototype._handleConnectError = function(){
-  //destroy resources, that have been created until now
-  // close the parser
-  if (this.parser) {
-    this.parser.close();
-    this.parser = null
-  }
-  try {
-    //the GET request
-    if('response' in this) this.response.connection.destroy();
-    if ('request' in this) {
-        this.request.end();  
-        this.request.connection.destroy(); 
-        if (typeof this.request.abort == 'function') 
-          this.request.abort();//new since node v3.8
-    }
-    this.log("[Response] Closing connection ");
-  } catch(e) {
-    this.warn("[Response] Error ending connection "+e)
-  }
-  try{
-    this.request.destroy && this.request.destroy();
-    this.response.destroy && this.response.destroy();    
-  }catch(e){
-    this.warn("[Response] Error destroying connection "+e)
-  }
-
+  this.log('handling Error during connection')
+  this.disconnect()
   //  now lets reconnect
-  if (this._checkMaxTimesConnectionError('connect')) return;
-  this.timeBetweenTries *= 2;     
-  //dont emit error message cause we handle it   
-  //this.emit('error', {type: 'connect', message: 'handleConnectionError ' + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds'})  
-  //reconnecting(reconnectionDelay,reconnectionAttempts)
-  this.emit ('reconnecting', this.timeBetweenTries, this.retries)
-  //we are not yet connected so no heartbeat interval is set, lets just try again
-  this.connecting=false;
-  this._connect(); //starts a timer before effectively connecting
+  this._onReconnect()
 }
 
 Socket.prototype.setupHeartbeatTimeoutInterval = function(h){
@@ -422,9 +395,9 @@ Socket.prototype.setupHeartbeatTimeoutInterval = function(h){
 	if(this._heartbeatTimeout._onTimeout !== null) clearTimeout(this._heartbeatTimeout);
 	//this.log('heartbeat Timeout cleared ' + 		self._heartbeatTimeout._idleStart   )					 
   self._heartbeatTimeout = setTimeout(function(){
-    self.log('heartBeat Timeout from server, should have received heartbeat '+ ++h + ' by now, time passed: '+ self.options.heartbeatInterval)
+    self.log('heartBeat Timeout from server, should have received heartbeat '+ ++h + ' by now, time passed: '+ self.options.timeout)
   	self._onDisconnect('heartbeat timeout');
-  }, self.options.heartbeatInterval);
+  }, self.options.timeout);
   //self.log('settup heartbeat Timeout ' + self._heartbeatTimeout._idleStart)			
 }
 //HANDLING ANSWERS
@@ -434,6 +407,10 @@ Socket.prototype._onConnect = function(){
   this.setupHeartbeatTimeoutInterval();
 	this.connected = true;
 	this.connecting = false;
+	this.reconnecting = false;	
+  this.retries	= 0 //reset the retry counter to zero, in case we had errors before
+  this.timeBetweenTries = this.options.maxReconnectionAttempts  //reset timeout time to inital time too, so next time we will start retrying expnantially from beginning
+
 	//this._doQueue();
 	//if (this.options.rememberTransport) this.options.document.cookie = 'socket.io=' + encodeURIComponent(this.transport.type);
 	this.emit('connect');
@@ -476,25 +453,16 @@ Socket.prototype._onHeartbeat = function(h){
 	//}
 };
 
-/*Socket.prototype._checkStartInterval = function(){
-  if (!this.initial) return;
-  if (this.initial) {
-    this.initial = false; 
-    this.startInterval();
-  }
-}
-*/
-
-Socket.prototype._checkMaxTimesConnectionError = function(type){
+Socket.prototype._checkMaxTimesConnectionError = function(){
   //start the timer on first usage
   //this._checkStartInterval();
   //reopen connection
-  if (this.retries++ >= this.maxRetries){
-    //this.emit('error', {type: type, message: 'max retry times reached, retried ' + this.maxRetries + ' times. bailing out'})
-    this.error('max retry times reached, retried ' + this.maxRetries + ' times. bailing out')
-    this.emit('reconnect_failed')//be coherent with cocket.io
+  if (this.retries++ >= this.maxReconnectionAttempts){
+    //this.emit('error', {type: type, message: 'max retry times reached, retried ' + this.maxReconnectionAttempts + ' times. bailing out'})
+    this.error('max retry times reached, retried ' + this.maxReconnectionAttempts + ' times. bailing out')
+    this.emit('reconnect_failed')//be coherent with socket.io
     //we shouldnt be in a timer, when we come here, cause the timer gets rearmed only after a disconnect took place and a _connect is called 
-    if (this.connectWaitTimer._onTimeout !== null ) clearTimeout(this._connectWaitTimer);  //that's it, definitely clear the reconnect timeout
+    //if (this.connectWaitTimer._onTimeout !== null ) clearTimeout(this._connectWaitTimer);  //that's it, definitely clear the reconnect timeout
     return true;   
   } 
   return false;
@@ -508,16 +476,9 @@ Socket.prototype._onDisconnect = function(spec){
   //reconnect(transport_type,reconnectionAttempts), timeBetweenretries
   //this.emit('disconnect', 'nodeTransport', this.retries, this.timeBetweenTries)
   this.disconnect();     
-  if (this._checkMaxTimesConnectionError('disconnect')) return;  
-  this.log(spec + ' retrying in ' + this.timeBetweenTries/1000 + ' seconds')    
-  this._connect();
-  this.timeBetweenTries *= 2;  
 
-  //}
-  //we will not receive any heartbeat anymore, so clear the heartbeat timeout
-  if (this._heartbeatTimeout._onTimeout !== null) clearTimeout(this._heartbeatTimeout);
-  //if (this.startInterval._onTimeout !== null ) clearTimeout(this._startInterval);  
-
+  //now lets reconnect
+  this._onReconnect();
 }
 
 
@@ -555,60 +516,6 @@ Socket.prototype._decode = function(data){
 	return messages;
 };
 
-
-
-
-
-/*if (db.user && db.pass) {
-    var basicAuth = 'Basic ' + new Buffer(db.user + ':' + db.pass).toString('base64');
-}
-
-var headers = {};
-if (typeof basicAuth != 'undefined') {
-    headers["Authorization"] = basicAuth;
-}*/
-function now(){
-	return new Date().toUTCString();
-}
-
-function options(opts, mergeOpts, self){
-	self.options = merge(opts || {}, mergeOpts || {});
-}
-
-function merge(source, merge){
-	for (var i in merge) source[i] = merge[i];
-	return source;
-};
-
-var colorize, styles;
-styles = {
-  'bold': [1, 22],
-  'italic': [3, 23],
-  'underline': [4, 24],
-  'inverse': [7, 27],
-  'white': [37, 39],
-  'grey': [90, 39],
-  'black': [30, 39],
-  'blue': [34, 39],
-  'cyan': [36, 39],
-  'green': [32, 39],
-  'magenta': [35, 39],
-  'red': [31, 39],
-  'yellow': [33, 39]
-};
-
-colorize = function(string, color) {
-  return '\033[' + styles[color][0] + 'm' + string + '\033[' + styles[color][1] + 'm';
-};
-
-var colors;
-if (typeof global != "undefined" && global !== null) {
-  colors = true;
-} else {
-  colorize = function(string, color) {
-    return string;
-  };
-}
 
 //factory method for closure
 exports.makeSocket=function(ip,port,opts){return new Socket(ip, port, opts);};
