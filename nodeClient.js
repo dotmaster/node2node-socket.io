@@ -176,9 +176,9 @@ Socket.prototype.connect = function(){
   var buffer="";sendBuffer="";
   
   //subscribe to own error events to send them to server
-   this.on('error', function(e){
+   //this.on('error', function(e){
      //this.send({status:'error', 'message':e.message, 'data':e})//will queue in sendbuffer if no connection available yet, be JSend compliant
-   }); 
+   //}); 
 
   /*
   *
@@ -411,7 +411,7 @@ Socket.prototype._onConnect = function(){
 	this.connecting = false;
 	this.reconnecting = false;	
   this.retries	= 0 //reset the retry counter to zero, in case we had errors before
-  this.timeBetweenTries = this.options.maxReconnectionAttempts  //reset timeout time to inital time too, so next time we will start retrying expnantially from beginning
+  this.timeBetweenTries = this.options.reconnectionDelay  //reset timeout time to inital time too, so next time we will start retrying expnantially from beginning
 
 	//this._doQueue();
 	//if (this.options.rememberTransport) this.options.document.cookie = 'socket.io=' + encodeURIComponent(this.transport.type);
