@@ -82,9 +82,11 @@ function Socket(ip, port, opts){
   
   //this function enables entrance to the connect function after a timeout
   this.manualConnect= function(){
+    //must not be connected
     if (this.connected || this.connecting || this.reconnecting) return;
     this.shouldConnect=true;
     this.timeBetweenTries = this.options.maxReconnectionAttempts
+    if (this._heartbeatTimeout._onTimeout !== null) clearTimeout(this._heartbeatTimeout);  
     this.retries = 0;
     this.heartbeats = 0
     this.connect() 

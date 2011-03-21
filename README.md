@@ -57,7 +57,7 @@ Some more 'error' events are added to the Client Object, so you can subscribe to
 
 Logging can be turned on/off in nodeClient by passing an option to the nodeClient like new io.nodeClient('0.0.0.0', 1234, {logging: true})
 
-NEW! Now uses nodeBase to do coherent logging.
+NEW from 0.0.2! Now uses nodeBase to do coherent logging.
 
 ## Modifications to Socket.io
 
