@@ -59,6 +59,39 @@ Logging can be turned on/off in nodeClient by passing an option to the nodeClien
 
 NEW from 0.0.2! Now uses nodeBase to do coherent logging.
 
+## Events
+
+- reconnect-failed //emitted after all reconnection attempts failed and we are not trying to connect anymore, until manualConnect() is called
+- reconnecting
+- disconnect
+- connect
+
+## Methods
+
+- connect()
+- disconnect()
+- manualConnect() ... like connect, but resets the retry timeout and status variable first
+
+## Status variables
+
+- connected
+- connecting
+- reconnecting
+
+#options
+
+- logging: true,
+- logLevel: 'ALL'
+
+socket.io specific options
+
+- reconnect: true,
+- secure: false,
+- timeout: 25000,// if no heartbeat message is received in this time frame, we consider the client disconnected
+- resource: 'socket.io'
+- maxReconnectionAttempts: 10,
+- reconnectionDelay: 500
+
 ## Modifications to Socket.io
 
 - a static function called addTransport is exposed to the outside world to add new transports to socket.io
