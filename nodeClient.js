@@ -64,7 +64,7 @@ function Socket(ip, port, opts){
 	this._posting=false;
   this._heartbeatTimeout = {};
   this.timeBetweenTries = this.options.reconnectionDelay;  
-  this.shouldConnect=true;
+  this.shouldConnect=true; //initially true to connect on startup
   this.initial = true;
   this.maxReconnectionAttempts = this.options.maxReconnectionAttempts;
   this.retries = 0;
@@ -161,13 +161,13 @@ Socket.prototype._request = function(url, method, multipart){
 * SERVER->CLIENT (GET CHANNEL)
 * 
 */
-Socket.prototype.connect = function(){
-  if (!this.shouldConnect)  return;
+Socket.prototype.connect = function(reconnecting){
+  if (!this.shouldConnect)  return false;
   this.log('connecting...')
   if (this.shouldConnect) this.shouldConnect=false;
   
   var self=this;
-  this.connecting = true;
+  if (!reconnecting) this.connecting = true;
   // SETUP PARSER FOR MULTIPART GET RESPONSES
   this.parser = multipart.parser();
   this.parser.boundary = "socketio";
@@ -407,6 +407,8 @@ Socket.prototype.setupHeartbeatTimeoutInterval = function(h){
 Socket.prototype._onConnect = function(){
   //when we connect the server will send a heartbeat within its interval (on the client we start counting a bit longer so that we take into account the transmission time)
   this.setupHeartbeatTimeoutInterval();
+  if (this.reconnecting) this.emit('reconnect') 
+  else this.emit('connect'); //if we were reconnecting differentiate the message
 	this.connected = true;
 	this.connecting = false;
 	this.reconnecting = false;	
@@ -415,7 +417,6 @@ Socket.prototype._onConnect = function(){
 
 	//this._doQueue();
 	//if (this.options.rememberTransport) this.options.document.cookie = 'socket.io=' + encodeURIComponent(this.transport.type);
-	this.emit('connect');
 };
 
 //response on data
@@ -438,6 +439,14 @@ Socket.prototype._onMessage = function(message){
 		this._onConnect();
 	} else if (message.substr(0, 3) == '~h~'){
 		this._onHeartbeat(message.substr(3)); //pong
+	} else if (message.substr(0, 3) == '~j~'){
+	  try{
+	    var objMessage = JSON.parse(message.substr(3));
+      //if (message.indexOf('fifty')>=0) console.log (JSON.parse(message.substr(3)).status)	    
+	  }catch (e) {
+	    return this.emit('error', 'JSON parse error ' + e + ' ' + message.substr(3))
+	  }      	
+		this.emit('message', objMessage); //JSON message	
 	} else {
 		this.emit('message', message);
 	}
