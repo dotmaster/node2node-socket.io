@@ -13,7 +13,7 @@ The way this is done is quite similar to the xhr-multipart transport. There is a
 To install and run do the following
 
 	git clone https://github.com/dotmaster/node2node-socket.io node2node-socket.io
-	git submodules update --init //this clones the patched version of socket.io
+	git submodule update --init # this clones the patched version of socket.io
 
 ### Implementing it on your project
 
